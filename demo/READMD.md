@@ -1,4 +1,8 @@
 # 此目录主要存放相关的测试程序
+
+特别提示：如果想使用案例之外的事件，可以使用perf list查看系统支持什么事件，然后
+gcc -O2 -g -o perf_count_program perf_count_program.c
+
 perf_monitor.cpp : perf_event_open 使用案例
 运行结果与perf运行结果对比如下
 ![Alt text](../image/image-4.png)
