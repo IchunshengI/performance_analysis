@@ -23,8 +23,55 @@ Frontend Bound(前端瓶颈)
 backend bound(后端瓶颈)
 
 ![Alt text](image/image-1.png)
-           |
-## 1.2 使用分析到的硬件计数事件为
+
+
+## 1.2 通用定义
+### 1.2.1 事件名称
+| **事件名称**                | **描述**                                              | **说明**                                   |
+|-----------------------------|------------------------------------------------------|----------------------------------------------|
+| **TotalSlots**              | Total number of issue-pipeline slots                 | 处理器发射流水线的总槽数                      |
+| **SlotsIssued**             | Utilized issue-pipeline slots to issue operations    | 用于发射操作的流水线槽数                      |
+| **SlotsRetired**            | Utilized issue-pipeline slots to retire operations   | 用于退休（完成）操作的流水线槽数              |
+| **FetchBubbles**            | Unutilized issue-pipeline slots, no backend-stall    | 在无后端阻塞时未被使用的发射流水线槽数        |
+| **RecoveryBubbles**         | Unutilized issue-pipeline slots due to recovery      | 由于从错误预测恢复导致未被使用的流水线槽数     |
+| **BrMispredRetired**        | Retired miss-predicted branch instructions           | 已退休的错误预测分支指令                      |
+| **MachineClears**           | Machine clear events (pipeline is flushed)           | 机器清除事件（导致流水线被刷新）              |
+| **MsSlotsRetired**          | Retired pipeline slots supplied by the microsequencer| 微代码顺序器提供的已退休流水线槽数            |
+| **OpsExecuted**             | Number of operations executed in a cycle             | 每个周期执行的操作数                           |
+| **MemStalls.AnyLoad**       | Cycles with no uops executed, 1 inflight load pending| 没有执行微操作，至少有 1 个未完成加载的周期     |
+| **MemStalls.L1miss**        | Cycles with no uops executed, load missed L1 cache   | 没有执行微操作，且加载未命中 L1 缓存的周期     |
+| **MemStalls.L2miss**        | Cycles with no uops executed, load missed L2 cache   | 没有执行微操作，且加载未命中 L2 缓存的周期     |
+| **MemStalls.L3miss**        | Cycles with no uops executed, load missed L3 cache   | 没有执行微操作，且加载未命中 L3 缓存的周期     |
+| **MemStalls.Stores**        | Cycles with few uops executed, no stores issued      | 执行少量微操作，无法发出新的存储操作的周期     |
+| **ExtMemOutstanding**       | Outstanding memory requests every cycle              | 每个周期未完成的内存控制器请求数               |
+
+### 1.2.2 通用计算表格
+| **Metric 名称**            | **公式**                                                                                      | **说明**                                                                 |
+|-----------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| **Frontend Bound**          | FetchBubbles / TotalSlots                                                                  | 前端受限：由于前端气泡未使用的发射槽占比。                                    |
+| **Bad Speculation**         | (SlotsIssued – SlotsRetired + RecoveryBubbles) / TotalSlots                                | 错误预测：已发射但未退休的槽数，加上恢复气泡的占比。                          |
+| **Retiring**                | SlotsRetired / TotalSlots                                                                  | 已退休：用于退休操作的发射槽占比。                                            |
+| **Backend Bound**           | 1 – (Frontend Bound + Bad Speculation + Retiring)                                         | 后端受限：总槽中非前端受限、错误预测或已退休的剩余部分。                      |
+| **Fetch Latency Bound**     | FetchBubbles[≥ #MIW] / Clocks                                                              | 取指延迟受限：未使用的前端气泡满足多指令窗口条件的周期占比。                  |
+| **Fetch Bandwidth Bound**   | Frontend Bound – Fetch Latency Bound                                                       | 取指带宽受限：前端受限中扣除取指延迟的部分。                                  |
+| **#BrMispredFraction**      | BrMispredRetired / (BrMispredRetired + MachineClears)                                      | 分支错误预测比例：错误预测分支退休占所有分支清除的比例。                      |
+| **Branch Mispredicts**      | #BrMispredFraction * Bad Speculation                                                      | 分支错误预测：错误预测比例与错误预测槽占比的乘积。                            |
+| **Machine Clears**          | Bad Speculation – Branch Mispredicts                                                      | 机器清除：错误预测中扣除分支错误预测的部分。                                  |
+| **MicroSequencer**          | MsSlotsRetired / TotalSlots                                                               | 微代码顺序器：微代码顺序器提供的退休槽占总槽的比例。                          |
+| **BASE**                    | Retiring – MicroSequencer                                                                 | 基础退休：已退休操作中扣除微代码顺序器贡献的部分。                            |
+| **#ExecutionStalls**        | (ΣOpsExecuted[= FEW]) / Clocks                                                            | 执行停顿：少量操作执行引起的周期占比。                                        |
+| **Memory Bound**            | (MemStalls.AnyLoad + MemStalls.Stores) / Clocks                                           | 内存受限：内存子系统加载与存储未完成引起的周期占比。                          |
+| **Core Bound**              | #ExecutionStalls – Memory Bound                                                          | 核心受限：执行停顿扣除内存受限部分的剩余周期。                                |
+| **L1 Bound**                | (MemStalls.AnyLoad – MemStalls.L1miss) / Clocks                                           | L1 缓存受限：加载未命中 L1 缓存之外的停顿周期占比。                           |
+| **L2 Bound**                | (MemStalls.L1miss – MemStalls.L2miss) / Clocks                                            | L2 缓存受限：加载未命中 L1 而命中或未命中 L2 的停顿周期占比。                 |
+| **L3 Bound**                | (MemStalls.L2miss – MemStalls.L3miss) / Clocks                                            | L3 缓存受限：加载未命中 L2 而命中或未命中 L3 的停顿周期占比。                 |
+| **Ext. Memory Bound**       | MemStalls.L3miss / Clocks                                                                 | 外部内存受限：加载未命中 L3 缓存导致的停顿周期占比。                          |
+| **MEM Bandwidth**           | ExtMemOutstanding[≥ THRESHOLD] / ExtMemOutstanding[≥ 1]                                   | 内存带宽：内存请求超过阈值的周期占所有未完成内存请求周期的比例。              |
+| **MEM Latency**             | (ExtMemOutstanding[≥ 1] / Clocks) – MEM Bandwidth                                         | 内存延迟：未完成内存请求的占比扣除内存带宽后的剩余部分。                      |
+
+    
+
+## 1.3 使用分析到的硬件计数事件为
 所使用的cpu为 Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz
 | 事件名称                                 | 中文解释                           | 事件配置   |
 |-----------------------------------------|------------------------------------|------------|
@@ -48,7 +95,7 @@ backend bound(后端瓶颈)
 | CYCLE_ACTIVITY.CYCLES_NO_EXECUTE        | 没有执行任何微操作的周期             | cpu/event=0xA3,umask=0x4,cmask=4/ |
 
 
-## 1.3 英特尔自顶向上计算方式中所使用的计算方式为
+## 1.4 英特尔自顶向上计算方式中所使用的计算方式为
 **使用分析到的硬件计数事件为**
 | Metric Name   | Intel Core events | 
 |---------------|-------------------|
@@ -69,46 +116,3 @@ backend bound(后端瓶颈)
 | **MEM Bandwidth**      | CYCLE_ACTIVITY.STALLS_MEM_ANY / CYCLE_ACTIVITY.CYCLES_NO_EXECUTE                                                    | 
 | **MEM Latency**        | ( CYCLE_ACTIVITY.CYCLES_NO_EXECUTE / CPU_CLK_UNHALTED.THREAD) - MEM Bandwidth
 
-## 1.4 通用定义
-### 1.4.1 事件名称
-| **事件名称**                | **描述**                                              | **说明**                                   |
-|-----------------------------|------------------------------------------------------|----------------------------------------------|
-| **TotalSlots**              | Total number of issue-pipeline slots                 | 处理器发射流水线的总槽数                      |
-| **SlotsIssued**             | Utilized issue-pipeline slots to issue operations    | 用于发射操作的流水线槽数                      |
-| **SlotsRetired**            | Utilized issue-pipeline slots to retire operations   | 用于退休（完成）操作的流水线槽数              |
-| **FetchBubbles**            | Unutilized issue-pipeline slots, no backend-stall    | 在无后端阻塞时未被使用的发射流水线槽数        |
-| **RecoveryBubbles**         | Unutilized issue-pipeline slots due to recovery      | 由于从错误预测恢复导致未被使用的流水线槽数     |
-| **BrMispredRetired**        | Retired miss-predicted branch instructions           | 已退休的错误预测分支指令                      |
-| **MachineClears**           | Machine clear events (pipeline is flushed)           | 机器清除事件（导致流水线被刷新）              |
-| **MsSlotsRetired**          | Retired pipeline slots supplied by the microsequencer| 微代码顺序器提供的已退休流水线槽数            |
-| **OpsExecuted**             | Number of operations executed in a cycle             | 每个周期执行的操作数                           |
-| **MemStalls.AnyLoad**       | Cycles with no uops executed, 1 inflight load pending| 没有执行微操作，至少有 1 个未完成加载的周期     |
-| **MemStalls.L1miss**        | Cycles with no uops executed, load missed L1 cache   | 没有执行微操作，且加载未命中 L1 缓存的周期     |
-| **MemStalls.L2miss**        | Cycles with no uops executed, load missed L2 cache   | 没有执行微操作，且加载未命中 L2 缓存的周期     |
-| **MemStalls.L3miss**        | Cycles with no uops executed, load missed L3 cache   | 没有执行微操作，且加载未命中 L3 缓存的周期     |
-| **MemStalls.Stores**        | Cycles with few uops executed, no stores issued      | 执行少量微操作，无法发出新的存储操作的周期     |
-| **ExtMemOutstanding**       | Outstanding memory requests every cycle              | 每个周期未完成的内存控制器请求数               |
-
-### 1.4.2 通用计算表格
-| **Metric 名称**            | **公式**                                                                                      | **说明**                                                                 |
-|-----------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| **Frontend Bound**          | FetchBubbles / TotalSlots                                                                  | 前端受限：由于前端气泡未使用的发射槽占比。                                    |
-| **Bad Speculation**         | (SlotsIssued – SlotsRetired + RecoveryBubbles) / TotalSlots                                | 错误预测：已发射但未退休的槽数，加上恢复气泡的占比。                          |
-| **Retiring**                | SlotsRetired / TotalSlots                                                                  | 已退休：用于退休操作的发射槽占比。                                            |
-| **Backend Bound**           | 1 – (Frontend Bound + Bad Speculation + Retiring)                                         | 后端受限：总槽中非前端受限、错误预测或已退休的剩余部分。                      |
-| **Fetch Latency Bound**     | FetchBubbles[≥ #MIW] / Clocks                                                              | 取指延迟受限：未使用的前端气泡满足多指令窗口条件的周期占比。                  |
-| **Fetch Bandwidth Bound**   | Frontend Bound – Fetch Latency Bound                                                       | 取指带宽受限：前端受限中扣除取指延迟的部分。                                  |
-| **#BrMispredFraction**      | BrMispredRetired / (BrMispredRetired + MachineClears)                                      | 分支错误预测比例：错误预测分支退休占所有分支清除的比例。                      |
-| **Branch Mispredicts**      | #BrMispredFraction * Bad Speculation                                                      | 分支错误预测：错误预测比例与错误预测槽占比的乘积。                            |
-| **Machine Clears**          | Bad Speculation – Branch Mispredicts                                                      | 机器清除：错误预测中扣除分支错误预测的部分。                                  |
-| **MicroSequencer**          | MsSlotsRetired / TotalSlots                                                               | 微代码顺序器：微代码顺序器提供的退休槽占总槽的比例。                          |
-| **BASE**                    | Retiring – MicroSequencer                                                                 | 基础退休：已退休操作中扣除微代码顺序器贡献的部分。                            |
-| **#ExecutionStalls**        | (ΣOpsExecuted[= FEW]) / Clocks                                                            | 执行停顿：少量操作执行引起的周期占比。                                        |
-| **Memory Bound**            | (MemStalls.AnyLoad + MemStalls.Stores) / Clocks                                           | 内存受限：内存子系统加载与存储未完成引起的周期占比。                          |
-| **Core Bound**              | #ExecutionStalls – Memory Bound                                                          | 核心受限：执行停顿扣除内存受限部分的剩余周期。                                |
-| **L1 Bound**                | (MemStalls.AnyLoad – MemStalls.L1miss) / Clocks                                           | L1 缓存受限：加载未命中 L1 缓存之外的停顿周期占比。                           |
-| **L2 Bound**                | (MemStalls.L1miss – MemStalls.L2miss) / Clocks                                            | L2 缓存受限：加载未命中 L1 而命中或未命中 L2 的停顿周期占比。                 |
-| **L3 Bound**                | (MemStalls.L2miss – MemStalls.L3miss) / Clocks                                            | L3 缓存受限：加载未命中 L2 而命中或未命中 L3 的停顿周期占比。                 |
-| **Ext. Memory Bound**       | MemStalls.L3miss / Clocks                                                                 | 外部内存受限：加载未命中 L3 缓存导致的停顿周期占比。                          |
-| **MEM Bandwidth**           | ExtMemOutstanding[≥ THRESHOLD] / ExtMemOutstanding[≥ 1]                                   | 内存带宽：内存请求超过阈值的周期占所有未完成内存请求周期的比例。              |
-| **MEM Latency**             | (ExtMemOutstanding[≥ 1] / Clocks) – MEM Bandwidth                                         | 内存延迟：未完成内存请求的占比扣除内存带宽后的剩余部分。                      |

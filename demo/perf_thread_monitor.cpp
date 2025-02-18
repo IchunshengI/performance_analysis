@@ -69,7 +69,7 @@ void *thread_function(void *arg)
         perror("perf_event_open");
         pthread_exit(NULL);
     }
-
+    fprintf(stderr," 文件描述符为%d \n", fd);    
     // 启动计数器
     ioctl(fd, PERF_EVENT_IOC_RESET, 0);
     ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
@@ -78,7 +78,7 @@ void *thread_function(void *arg)
     if (data->thread_id == 1) {
         task1();
     } else if (data->thread_id == 2) {
-        task2();
+        task1();
     }
 
     // 停止计数器

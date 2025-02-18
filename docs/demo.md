@@ -10,3 +10,13 @@
 
 预期效果如下，生成对应的svg图片并能展示结点连接信息，点击结点能够展示详细的瓶颈，同时结点提供名字
 ![Alt text](image/image-4.png)
+
+# 第一部分实现
+```c++
+int fd = perf_event_open(&pe, 0, -1, -1, 0);  /* 设置好*/
+ioctl(fd, PERF_EVENT_IOC_RESET, 0); /* 重置计数器 */
+ioctl(fd, PERF_EVENT_IOC_ENABLE, 0); /* 是能计数器 */
+ioctl(fd, PERF_EVENT_IOC_DISABLE, 0); /* 停止计数器 */
+
+// map映射里面直接把fd映射过去就
+```
